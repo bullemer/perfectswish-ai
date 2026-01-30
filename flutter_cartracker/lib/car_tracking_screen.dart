@@ -1,0 +1,342 @@
+import 'dart:typed_data'; // For Uint8List
+import 'package:flutter/material.dart';
+import 'package:camera/camera.dart';
+import 'package:flutter_vision/flutter_vision.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'box_painter.dart';
+import 'package:image/image.dart' as img; // Import image package
+import 'utils/image_utils.dart'; // Import YUV converter
+import 'utils/box_tracker.dart'; // Import BoxTracker
+
+class CarTrackingScreen extends StatefulWidget {
+  final List<String>? classFilter;
+  final String title;
+
+  const CarTrackingScreen({
+    super.key, 
+    this.classFilter,
+    this.title = "Object Tracker",
+  });
+
+  @override
+  State<CarTrackingScreen> createState() => _CarTrackingScreenState();
+}
+
+class _CarTrackingScreenState extends State<CarTrackingScreen> {
+  late CameraController cameraController;
+  late FlutterVision vision;
+  
+  // State
+  bool isCameraInitialized = false;
+  bool isModelLoaded = false;
+  bool isDetecting = false;
+  
+  // Data
+  List<Map<String, dynamic>> detections = [];
+  double imageWidth = 1.0;
+  double imageHeight = 1.0;
+
+  String? errorMessage;
+
+  // Tracking
+  final BoxTracker boxTracker = BoxTracker(); // Box Persistence
+  bool isProcessingFrame = false; // concurrency control
+
+  @override
+  void initState() {
+    super.initState();
+    vision = FlutterVision();
+    initializeCamera();
+    loadYoloModel();
+  }
+
+// ... (omitting unchanged init/dispose)
+
+  void startDetection() {
+    if (!isCameraInitialized || !isModelLoaded || isDetecting) return;
+    setState(() {
+      isDetecting = true;
+    });
+
+    cameraController.startImageStream((image) async {
+      if (isProcessingFrame) return; // Drop frame if busy
+      isProcessingFrame = true;
+
+      try {
+        // 1. Convert YUV to RGB
+        img.Image? rawImage = convertYUV420ToImage(image);
+        
+        if (rawImage != null) {
+          // 1b. NO Rotation needed for Landscape!
+          // Input: 720x480 (Landscape) -> Model: 640x480 (Landscape)
+          final img.Image processedImage = rawImage;
+
+          // 2. Encode to JPEG for yoloOnImage
+          Uint8List jpegBytes = Uint8List.fromList(img.encodeJpg(processedImage));
+
+          // 3. Run Inference on the clean JPEG
+          final response = await vision.yoloOnImage(
+            bytesList: jpegBytes,
+            imageHeight: processedImage.height,
+            imageWidth: processedImage.width,
+            iouThreshold: 0.5,
+            confThreshold: 0.4,
+            classThreshold: 0.4,
+          );
+
+          // 4. Apply Box Persistence (Tracker)
+          var trackedObjects = boxTracker.process(response);
+          
+          // 5. Apply Class Filter (if vehicle mode)
+          if (widget.classFilter != null) {
+            trackedObjects = trackedObjects.where((obj) {
+              return widget.classFilter!.contains(obj['tag']);
+            }).toList();
+          }
+
+          // 6. Coordinate Mapping: Model (640x480) -> Image (720x480)
+          // flutter_vision uses "downsize" mode = direct squash (NOT letterbox)
+          // It scales 720x480 -> 640x480 directly without preserving aspect ratio.
+          // To convert back: multiply X by 720/640, Y unchanged (480/480=1)
+          
+          double modelWidth = 640.0;
+          double modelHeight = 480.0;
+          double imgW = processedImage.width.toDouble();  // 720
+          double imgH = processedImage.height.toDouble(); // 480
+          
+          // Direct scaling (no letterbox, no padding)
+          double scaleX = imgW / modelWidth;  // 720/640 = 1.125
+          double scaleY = imgH / modelHeight; // 480/480 = 1.0
+
+          // Create a Display Copy (Deep Clone)
+          List<Map<String, dynamic>> displayDetections = trackedObjects.map((obj) {
+             return {
+               "tag": obj["tag"],
+               "box": List<dynamic>.from(obj["box"]), // Clone the box list
+             };
+          }).toList();
+
+          for (var obj in displayDetections) {
+            List<dynamic> box = obj['box'];
+            // Simple direct scaling (no padding offsets)
+            box[0] = box[0] * scaleX; // x1
+            box[1] = box[1] * scaleY; // y1
+            box[2] = box[2] * scaleX; // x2
+            box[3] = box[3] * scaleY; // y2
+          }
+
+          if (mounted) {
+             setState(() {
+               detections = displayDetections;
+               // Use actual image dimensions for painter
+               imageWidth = imgW;
+               imageHeight = imgH;
+             });
+          }
+        }
+      } catch (e) {
+        debugPrint("Error detecting: $e");
+      } finally {
+        isProcessingFrame = false;
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    cameraController.dispose();
+    vision.closeYoloModel();
+    super.dispose();
+  }
+
+  Future<void> initializeCamera() async {
+    try {
+      // Request Camera Permission
+      var status = await Permission.camera.request();
+      if (status.isDenied || status.isPermanentlyDenied) {
+        throw Exception("Camera permission denied. Please enable it in settings.");
+      }
+
+      final cameras = await availableCameras();
+      if (cameras.isEmpty) {
+        throw Exception("No cameras found");
+      }
+      vision = FlutterVision();
+      cameraController = CameraController(cameras[0], ResolutionPreset.medium);
+      await cameraController.initialize();
+      await loadYoloModel();
+      if (mounted) {
+        setState(() {
+          isCameraInitialized = true;
+          isModelLoaded = true;
+          errorMessage = null;
+        });
+        startDetection();
+      }
+    } catch (e) {
+      debugPrint("Error initializing: $e");
+      if (mounted) {
+        setState(() {
+          errorMessage = e.toString();
+        });
+      }
+    }
+  }
+
+  Future<void> loadYoloModel() async {
+    try {
+      await vision.loadYoloModel(
+          // Use the Landscape optimized model (480h x 640w)
+          modelPath: "assets/yolov8s_landscape.tflite",
+          labels: "assets/labels.txt",
+          modelVersion: "yolov8",
+          quantization: false,
+          numThreads: 2,
+          useGpu: true);
+      setState(() {
+        isModelLoaded = true;
+      });
+    } catch (e) {
+      debugPrint("Error loading YOLO model: $e");
+    }
+  }
+
+
+
+  @override
+  Widget build(BuildContext context) {
+    if (errorMessage != null) {
+      return Scaffold(
+        backgroundColor: Colors.black,
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Text(
+              "Error: $errorMessage",
+              style: const TextStyle(color: Colors.red),
+              textAlign: TextAlign.center,
+            ),
+          ),
+        ),
+      );
+    }
+    if (!isCameraInitialized) {
+      return const Scaffold(
+        backgroundColor: Colors.black,
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          // CameraPreview will maintain its aspect ratio and center itself
+          CameraPreview(cameraController),
+          // CustomPaint fills the Stack, painter handles offset internally
+          CustomPaint(
+            painter: YoloBoxPainter(
+              detections: detections,
+              imageWidth: imageWidth > 0 ? imageWidth : 720,
+              imageHeight: imageHeight > 0 ? imageHeight : 480,
+            ),
+          ),
+          // DETECTION LOG OVERLAY - Top of screen
+          Positioned(
+            top: 50,
+            left: 10,
+            right: 10,
+            child: Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.black.withOpacity(0.8),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    "🔍 ${widget.title.toUpperCase()}",
+                    style: TextStyle(
+                      color: Colors.greenAccent,
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    "Objects Found: ${detections.length}",
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 14,
+                    ),
+                  ),
+                  if (detections.isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      detections.map((e) => "${e['tag']} (${(e['box'][4]*100).toInt()}%)").join(", "),
+                      style: TextStyle(
+                        color: Colors.yellow,
+                        fontSize: 12,
+                      ),
+                      maxLines: 3,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                  if (detections.isEmpty) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      "Scanning... Point at objects like cups, chairs, people, phones...",
+                      style: TextStyle(
+                        color: Colors.grey,
+                        fontSize: 11,
+                        fontStyle: FontStyle.italic,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+          // STATUS BAR - Bottom of screen
+          Positioned(
+            bottom: 30,
+            left: 0,
+            right: 0,
+            child: Center(
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                decoration: BoxDecoration(
+                  color: detections.isNotEmpty ? Colors.green.withOpacity(0.8) : Colors.black54,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  detections.isNotEmpty 
+                    ? "✅ ${detections.length} object(s) detected"
+                    : "📷 Scanning...",
+                  style: const TextStyle(color: Colors.white, fontSize: 14),
+                ),
+              ),
+            ),
+          ),
+          // BACK BUTTON - Bottom Left
+          Positioned(
+            bottom: 20,
+            left: 20,
+            child: FloatingActionButton(
+              onPressed: () {
+                // Stop camera stream and navigate back
+                if (isDetecting) {
+                  cameraController.stopImageStream();
+                }
+                Navigator.pop(context);
+              },
+              backgroundColor: Colors.redAccent,
+              child: const Icon(Icons.arrow_back, color: Colors.white),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}

@@ -1,0 +1,31 @@
+# Python virtual environment
+yolo_export_venv/
+
+# Build outputs (except what we want to keep)
+flutter_cartracker/build/
+flutter_cartracker/.dart_tool/
+flutter_cartracker/.packages
+flutter_cartracker/.flutter-plugins
+flutter_cartracker/.flutter-plugins-dependencies
+flutter_cartracker/android/.gradle/
+flutter_cartracker/ios/
+
+# Large model files (keep ONNX for inference)
+*.pt
+yolov8s_saved_model/
+
+# Android mount directory
+mnt_android/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+apk/
