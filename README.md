@@ -1,7 +1,6 @@
 # perfectswish-ai
 This is all about the perfect swish (shot) in Basketball - Android first, Iphone later
 
-
 # 🏀 PerfectSwish AI
 
 **Turn your smartphone into a Pro Basketball Analytics Kiosk.**
@@ -26,6 +25,7 @@ The system is designed as a **"Smart Gym Kiosk"**:
     * **Vision Engine:** Runs **YOLOv8** (Ball tracking) and **MediaPipe** (Pose estimation) concurrently.
     * **TV Output:** Renders a "Broadcast View" dashboard via USB-C to HDMI.
     * **Logic:** Calculates release angles, shot curve, and Make/Miss logic.
+    * **Voice Command Interface:** Enables hands-free control for solo training (e.g., *"Reset"*, *"Save Shot"*, *"Next Drill"*).
     * **Local Server:** Acts as a WebSocket host/Hotspot for the Client App.
 
 ### 2. 🟡 The Client (Remote App)
@@ -48,6 +48,7 @@ The system is designed as a **"Smart Gym Kiosk"**:
 | **Framework** | **Flutter** (Dart) | Single codebase for UI and Logic. High performance on Android. |
 | **AI Engine** | **TFLite / MediaPipe** | Offline inference optimized for mobile NPUs. |
 | **Object Detection**| **YOLOv8 Nano** | Best balance of speed/accuracy for ball tracking. |
+| **Voice AI** | **Android Speech / Porcupine** | Offline wake-word detection for gym environments. |
 | **Connectivity** | **WebSockets** | Low-latency bi-directional communication between Controller & Client. |
 | **Database** | **Isar (NoSQL)** | Ultra-fast local storage for high-frequency shot data. |
 
@@ -60,7 +61,7 @@ We are currently in the **Vehicle Tracker Prototype** phase to validate the hard
 - [ ] **Phase 1:** Validate YOLOv8n performance on Android (Project "CarTracker").
 - [ ] **Phase 2:** Build the "Controller" skeleton with CameraX + TFLite.
 - [ ] **Phase 3:** Implement "Shot Logic" (Math for curve detection).
-- [ ] **Phase 4:** Develop the WebSocket "Handshake" between Controller and Client.
+- [ ] **Phase 4:** Integrate offline Voice Control for basic session commands.
 
 ---
 
@@ -70,4 +71,4 @@ We are looking for collaborators with experience in:
 * **Computer Vision** (OpenCV, TFLite models)
 * **Math/Physics** (Trajectory calculation)
 
-*Project maintained by Carsten Bullemer - Mini Basketball Coach at KS Polonia Hamburg (www.ks-polonia.de) , e.V.
+*Project maintained by Carsten Bullemer - Mini Basketball Coach at KS Polonia Hamburg (https://www.ks-polonia.de/basketball-fuer-kinder-in-hamburg-uhlenhorst/) , e.V.
