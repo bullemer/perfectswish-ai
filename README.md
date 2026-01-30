@@ -70,4 +70,4 @@ We are looking for collaborators with experience in:
 * **Computer Vision** (OpenCV, TFLite models)
 * **Math/Physics** (Trajectory calculation)
 
-*Project maintained by [Your Name]*
+*Project maintained by Carsten Bullemer - Mini Basketball Coach at KS Polonia Hamburg (www.ks-polonia.de) , e.V.
