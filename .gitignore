@@ -29,3 +29,16 @@ mnt_android/
 .DS_Store
 Thumbs.db
 apk/
+
+# Large files (exceed GitHub 2GB limit)
+*.tflite
+*.mp4
+*.zip
+*.onnx
+vosk-model-*/
+Basketball*/
+basketball-player-detection/
+Video/
+runs/
+best_*.tflite
+*.yolov8/

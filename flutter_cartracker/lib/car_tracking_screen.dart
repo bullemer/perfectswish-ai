@@ -3,19 +3,24 @@ import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
 import 'package:flutter_vision/flutter_vision.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:presentation_displays/displays_manager.dart';
 import 'box_painter.dart';
 import 'package:image/image.dart' as img; // Import image package
 import 'utils/image_utils.dart'; // Import YUV converter
 import 'utils/box_tracker.dart'; // Import BoxTracker
+import 'voice_announcer.dart'; // Import VoiceAnnouncer
+import 'config/yolo_model_config.dart';
 
 class CarTrackingScreen extends StatefulWidget {
   final List<String>? classFilter;
   final String title;
+  final DisplayManager? displayManager;
 
   const CarTrackingScreen({
     super.key, 
     this.classFilter,
     this.title = "Object Tracker",
+    this.displayManager,
   });
 
   @override
@@ -40,6 +45,7 @@ class _CarTrackingScreenState extends State<CarTrackingScreen> {
 
   // Tracking
   final BoxTracker boxTracker = BoxTracker(); // Box Persistence
+  final VoiceAnnouncer voiceAnnouncer = VoiceAnnouncer(); // TTS
   bool isProcessingFrame = false; // concurrency control
 
   @override
@@ -59,6 +65,7 @@ class _CarTrackingScreenState extends State<CarTrackingScreen> {
     });
 
     cameraController.startImageStream((image) async {
+      if (!isDetecting) return; // Stop immediately if disposing
       if (isProcessingFrame) return; // Drop frame if busy
       isProcessingFrame = true;
 
@@ -132,7 +139,13 @@ class _CarTrackingScreenState extends State<CarTrackingScreen> {
                imageWidth = imgW;
                imageHeight = imgH;
              });
-          }
+             _sendStatsToDashboard(displayDetections);
+              
+             // Announce the first detected object if any
+             if (displayDetections.isNotEmpty) {
+               voiceAnnouncer.announceObject(displayDetections.first['tag']);
+             }
+           }
         }
       } catch (e) {
         debugPrint("Error detecting: $e");
@@ -142,11 +155,59 @@ class _CarTrackingScreenState extends State<CarTrackingScreen> {
     });
   }
 
+  void _sendStatsToDashboard(List<Map<String, dynamic>> results) {
+    if (widget.displayManager == null) return;
+
+    final Map<String, int> stats = {};
+    for (var res in results) {
+      final String label = res['tag'] ?? 'unknown';
+      stats[label] = (stats[label] ?? 0) + 1;
+    }
+
+    widget.displayManager!.transferDataToPresentation({
+      'stats': stats,
+    });
+  }
+
   @override
   void dispose() {
-    cameraController.dispose();
-    vision.closeYoloModel();
+    _safeDispose();
     super.dispose();
+  }
+
+  /// Safely dispose camera resources to prevent Impeller crash
+  Future<void> _safeDispose() async {
+    // 1. Stop TTS
+    voiceAnnouncer.stop();
+    
+    // 2. Mark as not detecting to stop new frames
+    isDetecting = false;
+    
+    // 3. Stop the image stream BEFORE disposing camera
+    if (cameraController.value.isStreamingImages) {
+      try {
+        await cameraController.stopImageStream();
+      } catch (e) {
+        debugPrint('[CarTrackingScreen] Error stopping stream: $e');
+      }
+    }
+    
+    // 4. Wait for any pending frame processing to complete
+    await Future.delayed(const Duration(milliseconds: 100));
+    
+    // 5. Now safely dispose
+    try {
+      await cameraController.dispose();
+    } catch (e) {
+      debugPrint('[CarTrackingScreen] Error disposing camera: $e');
+    }
+    
+    // 6. Close YOLO model
+    try {
+      await vision.closeYoloModel();
+    } catch (e) {
+      debugPrint('[CarTrackingScreen] Error closing model: $e');
+    }
   }
 
   Future<void> initializeCamera() async {
@@ -186,13 +247,13 @@ class _CarTrackingScreenState extends State<CarTrackingScreen> {
   Future<void> loadYoloModel() async {
     try {
       await vision.loadYoloModel(
-          // Use the Landscape optimized model (480h x 640w)
-          modelPath: "assets/yolov8s_landscape.tflite",
-          labels: "assets/labels.txt",
-          modelVersion: "yolov8",
-          quantization: false,
-          numThreads: 2,
-          useGpu: true);
+          // Use the config from YoloModelConfig
+          modelPath: YoloModelConfig.modelPath,
+          labels: YoloModelConfig.labelsPath,
+          modelVersion: YoloModelConfig.modelVersion,
+          quantization: YoloModelConfig.quantization,
+          numThreads: YoloModelConfig.numThreads,
+          useGpu: YoloModelConfig.useGpu);
       setState(() {
         isModelLoaded = true;
       });

@@ -9,8 +9,40 @@ rootProject.buildDir = "../build"
 subprojects {
     project.buildDir = "${rootProject.buildDir}/${project.name}"
 }
+
+/**
+ * Global build stabilization for Flutter plugins
+ * 1. Standardizes Java/Kotlin targets to 11
+ * 2. Injects namespaces for older plugins for AGP 8+ compatibility
+ */
 subprojects {
     project.evaluationDependsOn(":app")
+    
+    // Force Java 11 for all Java compilation tasks
+    tasks.withType(JavaCompile).configureEach {
+        sourceCompatibility = JavaVersion.VERSION_11
+        targetCompatibility = JavaVersion.VERSION_11
+    }
+
+    // Force Kotlin JVM target 11 for all Kotlin compilation tasks
+    tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
+        kotlinOptions {
+            jvmTarget = "11"
+        }
+    }
+
+    // Modern AGP 8.0+ Namespace injection
+    project.plugins.withType(com.android.build.gradle.LibraryPlugin) {
+        project.android {
+            if (project.name == 'presentation_displays') {
+                namespace = 'com.namit.presentation_displays'
+            } else if (project.name == 'flutter_tts') {
+                namespace = 'com.eyedeadevelopment.fluttertts'
+            } else if (project.name == 'vosk_flutter') {
+                namespace = 'org.vosk.vosk_flutter'
+            }
+        }
+    }
 }
 
 tasks.register("clean", Delete) {
