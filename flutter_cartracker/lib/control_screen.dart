@@ -115,6 +115,16 @@ class _ControlScreenState extends State<ControlScreen> {
     );
   }
 
+  void _showComingSoon() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Coming soon...', style: TextStyle(fontSize: 16)),
+        duration: Duration(seconds: 2),
+        backgroundColor: Colors.purple,
+      ),
+    );
+  }
+
   @override
   void dispose() {
     _voiceService.dispose();
@@ -169,6 +179,8 @@ class _ControlScreenState extends State<ControlScreen> {
           isProjecting: _isProjecting,
           onToggleVoice: _toggleVoiceListening,
           onRefreshDisplays: _checkDisplays,
+          onNavigateToObjectTracker: _navigateToObjectTracker,
+          onNavigateToVehicleTracker: _navigateToVehicleTracker,
         ),
       ),
     );
@@ -202,34 +214,26 @@ class _ControlScreenState extends State<ControlScreen> {
         padding: const EdgeInsets.all(24.0),
         child: Column(
           children: [
-            // Tracker Selection
+            // Main Features
             const Text(
-              "TRACKING MODES",
+              "TRAINING",
               style: TextStyle(color: Colors.white70, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 20),
-            _buildMenuButton(
-              context, 
-              "Object Tracker", 
-              Colors.blueAccent,
-              Icons.view_in_ar,
-              _navigateToObjectTracker,
-            ),
-            const SizedBox(height: 15),
-            _buildMenuButton(
-              context, 
-              "Vehicle Tracker", 
-              Colors.orangeAccent,
-              Icons.directions_car,
-              _navigateToVehicleTracker,
-            ),
-            const SizedBox(height: 15),
             _buildMenuButton(
               context, 
               "Swish Trainer", 
               Colors.deepOrange,
               Icons.sports_basketball,
               _navigateToSwishTrainer,
+            ),
+            const SizedBox(height: 15),
+            _buildMenuButton(
+              context, 
+              "Analyze Sessions", 
+              Colors.purple,
+              Icons.analytics,
+              _showComingSoon,
             ),
             
             const SizedBox(height: 30),

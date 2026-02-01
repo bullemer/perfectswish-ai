@@ -7,6 +7,8 @@ class StatusScreen extends StatelessWidget {
   final bool isProjecting;
   final VoidCallback onToggleVoice;
   final VoidCallback onRefreshDisplays;
+  final VoidCallback onNavigateToObjectTracker;
+  final VoidCallback onNavigateToVehicleTracker;
 
   const StatusScreen({
     super.key,
@@ -16,6 +18,8 @@ class StatusScreen extends StatelessWidget {
     required this.isProjecting,
     required this.onToggleVoice,
     required this.onRefreshDisplays,
+    required this.onNavigateToObjectTracker,
+    required this.onNavigateToVehicleTracker,
   });
 
   @override
@@ -164,6 +168,44 @@ class StatusScreen extends StatelessWidget {
                   _buildInfoRow("Projection", isProjecting ? "Active" : "Inactive"),
                 ],
               ),
+            ),
+
+            const SizedBox(height: 30),
+
+            // Developer Tools (Object/Vehicle Tracker)
+            const Text(
+              "DEVELOPER TOOLS",
+              style: TextStyle(color: Colors.white70, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: ElevatedButton.icon(
+                    icon: const Icon(Icons.view_in_ar, color: Colors.white),
+                    label: const Text("Object Tracker", style: TextStyle(color: Colors.white)),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.blueAccent,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                    onPressed: onNavigateToObjectTracker,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: ElevatedButton.icon(
+                    icon: const Icon(Icons.directions_car, color: Colors.white),
+                    label: const Text("Vehicle Tracker", style: TextStyle(color: Colors.white)),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.orangeAccent,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                    onPressed: onNavigateToVehicleTracker,
+                  ),
+                ),
+              ],
             ),
           ],
         ),
