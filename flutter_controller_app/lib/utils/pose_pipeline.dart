@@ -10,10 +10,11 @@ class PosePipeline {
   final PoseDetector _poseDetector;
   final void Function(List<Pose> poses, int imageWidth, int imageHeight, int sensorOrientation, bool isFrontCamera) onPosesDetected;
   
+  // Pose pending flag pattern (same as YOLO - don't store CameraImage)
   bool _isProcessing = false;
-  CameraImage? _latestFrame;
-  int? _latestRotation;
-  bool _isFrontCamera = false;
+  bool _posePending = false;
+  int _pendingRotation = 0;
+  bool _pendingIsFront = false;
   DateTime _lastInferenceTime = DateTime.now();
   
   // Target 15-20 FPS = 50-66ms between frames
@@ -25,36 +26,32 @@ class PosePipeline {
   }) : _poseDetector = PoseDetector(
     options: options ?? PoseDetectorOptions(
       mode: PoseDetectionMode.stream,
-      model: PoseDetectionModel.accurate,
+      model: PoseDetectionModel.base, // Use base for better performance
     ),
   );
   
-  /// Queue a frame for processing. Uses latest-frame-wins strategy.
+  /// Queue a frame for processing. Uses pending-flag pattern (no CameraImage storage).
   void processFrame(CameraImage image, int rotationDegrees, bool isFrontCamera) {
-    _latestFrame = image;
-    _latestRotation = rotationDegrees;
-    _isFrontCamera = isFrontCamera;
-    
-    _tryProcessLatestFrame();
-  }
-  
-  void _tryProcessLatestFrame() async {
-    if (_isProcessing) return;
-    if (_latestFrame == null) return;
-    
     // Throttle to target FPS
     final now = DateTime.now();
     final elapsed = now.difference(_lastInferenceTime).inMilliseconds;
     if (elapsed < _minIntervalMs) return;
     
-    _isProcessing = true;
-    _lastInferenceTime = now;
+    if (_isProcessing) {
+      // Mark pending but DON'T store the CameraImage (buffers are reused!)
+      _posePending = true;
+      _pendingRotation = rotationDegrees;
+      _pendingIsFront = isFrontCamera;
+      return;
+    }
     
-    // Grab the frame and clear buffer (latest-frame-wins)
-    final frame = _latestFrame!;
-    final rotation = _latestRotation!;
-    final isFront = _isFrontCamera;
-    _latestFrame = null;
+    _processFrame(image, rotationDegrees, isFrontCamera);
+  }
+  
+  void _processFrame(CameraImage frame, int rotation, bool isFront) async {
+    _isProcessing = true;
+    _posePending = false;
+    _lastInferenceTime = DateTime.now();
     
     try {
       final inputImage = _convertCameraImageToInputImage(frame, rotation);
@@ -63,13 +60,13 @@ class PosePipeline {
         onPosesDetected(poses, frame.width, frame.height, rotation, isFront);
       }
     } catch (e) {
-      debugPrint('[PosePipeline] Error processing frame: $e');
+      if (kDebugMode) {
+        debugPrint('[PosePipeline] Error processing frame: $e');
+      }
     } finally {
       _isProcessing = false;
-      // Check if new frame arrived while processing
-      if (_latestFrame != null) {
-        _tryProcessLatestFrame();
-      }
+      // Pending flag handled by next incoming frame from stream
+      // No recursive call needed - processFrame will be called again by camera stream
     }
   }
   

@@ -2,8 +2,8 @@
 // This file specifies which YOLO model is currently in use
 
 class YoloModelConfig {
-  // Current model in use
-  static const String modelPath = 'assets/basketball_custom_float32.tflite';
+  // Current model in use - Float32 for reliable detection
+  static const String modelPath = 'assets/basketball_yolo11n.tflite';
   static const String labelsPath = 'assets/custom_labels.txt';
   static const String modelVersion = 'yolov8';
   
@@ -14,8 +14,8 @@ class YoloModelConfig {
   
   // Inference settings
   static const bool quantization = false; // Float32 requires false
-  static const int numThreads = 2;
-  static const bool useGpu = true; // Enabled GPU for float32
+  static const int numThreads = 4; // Use more threads
+  static const bool useGpu = true; // GPU for float32
   
   // Detection thresholds
   static const double confThreshold = 0.2;
@@ -32,9 +32,8 @@ class YoloModelConfig {
 
   // Class Names for custom model (Net = Rim)
   static const List<String> customLabels = [
-    'Basketball Court',
     'Basketball',
     'Net',
-    'No ball'
+    'Player'
   ];
 }

@@ -1,4 +1,3 @@
 Basketball
-Basketball Court
 Net
-No ball
+Player

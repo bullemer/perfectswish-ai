@@ -37,6 +37,14 @@ android {
             signingConfig = signingConfigs.debug
         }
     }
+
+    // Extract native libs to filesystem so Android 15 (16KB page alignment)
+    // doesn't reject pre-built .so files from plugins like ultralytics_yolo.
+    packagingOptions {
+        jniLibs {
+            useLegacyPackaging = true
+        }
+    }
 }
 
 flutter {

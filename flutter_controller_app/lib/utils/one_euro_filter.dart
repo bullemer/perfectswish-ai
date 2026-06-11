@@ -80,6 +80,20 @@ class OneEuroFilter2D {
   }) : _filterX = OneEuroFilter(minCutoff: minCutoff, beta: beta, dCutoff: dCutoff),
        _filterY = OneEuroFilter(minCutoff: minCutoff, beta: beta, dCutoff: dCutoff);
   
+  /// Smooth preset: Less jitter, more lag (good for static poses)
+  factory OneEuroFilter2D.smooth() => OneEuroFilter2D(
+    minCutoff: 1.0,
+    beta: 0.007,
+    dCutoff: 1.0,
+  );
+  
+  /// Responsive preset: More jitter, less lag (good for fast movement/walking)
+  factory OneEuroFilter2D.responsive() => OneEuroFilter2D(
+    minCutoff: 3.0,
+    beta: 0.5,
+    dCutoff: 1.0,
+  );
+  
   /// Filter a 2D point. Returns filtered (x, y).
   (double, double) filter(double x, double y, double t) {
     return (_filterX.filter(x, t), _filterY.filter(y, t));

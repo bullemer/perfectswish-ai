@@ -1,7 +1,7 @@
 import 'dart:typed_data'; // For Uint8List
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
-import 'package:flutter_vision/flutter_vision.dart';
+import 'package:ultralytics_yolo/ultralytics_yolo.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:presentation_displays/displays_manager.dart';
 import 'box_painter.dart';
@@ -10,6 +10,9 @@ import 'utils/image_utils.dart'; // Import YUV converter
 import 'utils/box_tracker.dart'; // Import BoxTracker
 import 'voice_announcer.dart'; // Import VoiceAnnouncer
 import 'config/yolo_model_config.dart';
+import 'dart:io';
+import 'package:flutter/services.dart';
+import 'package:path_provider/path_provider.dart';
 
 class CarTrackingScreen extends StatefulWidget {
   final List<String>? classFilter;
@@ -29,7 +32,7 @@ class CarTrackingScreen extends StatefulWidget {
 
 class _CarTrackingScreenState extends State<CarTrackingScreen> {
   late CameraController cameraController;
-  late FlutterVision vision;
+  YOLO? objectDetector;
   
   // State
   bool isCameraInitialized = false;
@@ -51,7 +54,7 @@ class _CarTrackingScreenState extends State<CarTrackingScreen> {
   @override
   void initState() {
     super.initState();
-    vision = FlutterVision();
+
     initializeCamera();
     loadYoloModel();
   }
@@ -82,14 +85,24 @@ class _CarTrackingScreenState extends State<CarTrackingScreen> {
           Uint8List jpegBytes = Uint8List.fromList(img.encodeJpg(processedImage));
 
           // 3. Run Inference on the clean JPEG
-          final response = await vision.yoloOnImage(
-            bytesList: jpegBytes,
-            imageHeight: processedImage.height,
-            imageWidth: processedImage.width,
-            iouThreshold: 0.5,
-            confThreshold: 0.4,
-            classThreshold: 0.4,
-          );
+          if (objectDetector == null) return;
+          if (objectDetector == null) return;
+          final resultMap = await objectDetector!.predict(jpegBytes, confidenceThreshold: 0.4, iouThreshold: 0.5);
+          
+          final List<dynamic> boxes = resultMap['boxes'] as List<dynamic>? ?? [];
+
+          final response = boxes.map((item) {
+            final Map<String, dynamic> boxMap = Map<String, dynamic>.from(item as Map);
+            // Assuming boxMap has 'box' (list) or 'xyxy'
+            final List<dynamic> coords = boxMap['box'] ?? boxMap['xyxy'] ?? [0,0,0,0];
+            final String label = boxMap['class'] as String? ?? 'unknown';
+             // flutter_vision format for BoxTracker: {'box': [x1,y1,x2,y2, prob], 'tag': label}
+            final double conf = (boxMap['confidence'] as num?)?.toDouble() ?? 0.0;
+            return {
+              'box': [coords[0], coords[1], coords[2], coords[3], conf],
+              'tag': label,
+            };
+          }).toList();
 
           // 4. Apply Box Persistence (Tracker)
           var trackedObjects = boxTracker.process(response);
@@ -204,7 +217,8 @@ class _CarTrackingScreenState extends State<CarTrackingScreen> {
     
     // 6. Close YOLO model
     try {
-      await vision.closeYoloModel();
+      await objectDetector?.dispose();
+      objectDetector = null;
     } catch (e) {
       debugPrint('[CarTrackingScreen] Error closing model: $e');
     }
@@ -222,7 +236,7 @@ class _CarTrackingScreenState extends State<CarTrackingScreen> {
       if (cameras.isEmpty) {
         throw Exception("No cameras found");
       }
-      vision = FlutterVision();
+
       cameraController = CameraController(cameras[0], ResolutionPreset.medium);
       await cameraController.initialize();
       await loadYoloModel();
@@ -244,21 +258,46 @@ class _CarTrackingScreenState extends State<CarTrackingScreen> {
     }
   }
 
+
+
   Future<void> loadYoloModel() async {
     try {
-      await vision.loadYoloModel(
-          // Use the config from YoloModelConfig
-          modelPath: YoloModelConfig.modelPath,
-          labels: YoloModelConfig.labelsPath,
-          modelVersion: YoloModelConfig.modelVersion,
-          quantization: YoloModelConfig.quantization,
-          numThreads: YoloModelConfig.numThreads,
-          useGpu: YoloModelConfig.useGpu);
+           final assetPath = YoloModelConfig.modelPath;
+           final localPath = await _copyAssetToLocal(assetPath);
+           
+          // Use the config from YoloModelConfig (ignoring other params for now)
+          objectDetector = YOLO(
+            modelPath: localPath,
+            task: YOLOTask.detect,
+          );
+          await objectDetector!.loadModel();
       setState(() {
         isModelLoaded = true;
       });
     } catch (e) {
       debugPrint("Error loading YOLO model: $e");
+    }
+  }
+
+  Future<String> _copyAssetToLocal(String assetPath) async {
+    try {
+      final filename = assetPath.split('/').last;
+      final dir = await getApplicationDocumentsDirectory();
+      final File file = File('${dir.path}/$filename');
+
+      if (await file.exists()) {
+         return file.path;
+      }
+
+      final ByteData data = await rootBundle.load(assetPath);
+      final List<int> bytes = data.buffer.asUint8List(
+        data.offsetInBytes, 
+        data.lengthInBytes
+      );
+      await file.writeAsBytes(bytes, flush: true);
+      return file.path;
+    } catch (e) {
+      throw Exception('Failed to copy asset $assetPath: $e');
     }
   }
 

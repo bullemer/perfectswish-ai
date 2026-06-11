@@ -40,6 +40,8 @@ subprojects {
                 namespace = 'com.eyedeadevelopment.fluttertts'
             } else if (project.name == 'vosk_flutter') {
                 namespace = 'org.vosk.vosk_flutter'
+            } else if (project.name == 'isar_flutter_libs') {
+                namespace = 'dev.isar.isar_flutter_libs'
             }
         }
     }

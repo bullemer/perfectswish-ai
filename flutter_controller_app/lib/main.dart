@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:provider/provider.dart';
 import 'control_screen.dart';
 import 'dashboard_screen.dart';
+import 'video_test_screen.dart';
+import 'config/yolo_model_state.dart';
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   
   debugPrint("[SYSTEM] Primary engine starting.");
@@ -12,6 +15,10 @@ void main() {
     DeviceOrientation.landscapeLeft,
     DeviceOrientation.landscapeRight,
   ]);
+  
+  // Initialize YOLO model state (load saved settings)
+  await YoloModelState().init();
+  
   runApp(const VisionTestApp());
 }
 
@@ -34,24 +41,35 @@ class VisionTestApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      debugShowCheckedModeBanner: false,
-      title: 'MagicShot AI',
-      theme: ThemeData.dark(),
-      onGenerateRoute: (settings) {
-        debugPrint("[SYSTEM] Navigating to route: ${settings.name}");
-        if (settings.name == 'presentation') {
+    return MultiProvider(
+      providers: [
+        ChangeNotifierProvider.value(value: YoloModelState()),
+      ],
+      child: MaterialApp(
+        debugShowCheckedModeBanner: false,
+        title: 'MagicShot AI',
+        theme: ThemeData.dark(),
+        onGenerateRoute: (settings) {
+          debugPrint("[SYSTEM] Navigating to route: ${settings.name}");
+          if (settings.name == 'presentation') {
+            return MaterialPageRoute(
+              settings: settings,
+              builder: (_) => const DashboardScreen(),
+            );
+          }
+          if (settings.name == '/video_test') {
+            return MaterialPageRoute(
+              settings: settings,
+              builder: (_) => const VideoTestScreen(),
+            );
+          }
           return MaterialPageRoute(
             settings: settings,
-            builder: (_) => const DashboardScreen(),
+            builder: (_) => const ControlScreen(),
           );
-        }
-        return MaterialPageRoute(
-          settings: settings,
-          builder: (_) => const ControlScreen(),
-        );
-      },
-      initialRoute: '/',
+        },
+        initialRoute: '/',
+      ),
     );
   }
 }

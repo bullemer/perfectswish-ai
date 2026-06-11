@@ -1,106 +1,127 @@
-import 'dart:math';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'services/object_tracker_service.dart';
+import 'utils/viewport_mapper.dart';
 
 /// Visual debugger overlay for ObjectTracker
-/// - Locked Rim: BLUE (thick lines)
-/// - Raw YOLO Ball: RED (thin lines)
-/// - Kalman Ball: GREEN (filled circle)
-/// - ROI Window: YELLOW (dashed lines)
+/// Expects TrackerState with NORMALIZED coordinates (0..1)
+/// Uses ViewportMapper for correct coordinate conversion
 class TrackerPainter extends CustomPainter {
   final TrackerState state;
-  final int imageWidth;
-  final int imageHeight;
-  final int rotationDegrees;
+  final List<Map<String, dynamic>>? rawDetectionsN;
+  
+  // Camera source size (portrait sensor) - should match YOLOView's camera
+  // Defaults to 480x640 (portrait) but can be overridden for Video Test Mode
+  final Size srcSize;
+  final BoxFit boxFit;
+  final bool showDebug;
 
   TrackerPainter({
     required this.state,
-    required this.imageWidth,
-    required this.imageHeight,
-    this.rotationDegrees = 0,
+    this.rawDetectionsN,
+    this.srcSize = const Size(480, 640),
+    this.boxFit = BoxFit.cover,
+    this.showDebug = false,
   });
 
   @override
   void paint(Canvas canvas, Size size) {
-    // Prevent division by zero
-    if (imageWidth <= 0 || imageHeight <= 0) return;
+    // Create mapper using Flutter's applyBoxFit
+    final m = ViewportMapper(
+      src: srcSize,
+      dst: size,
+      fit: boxFit, // Use provided fit param
+    );
     
-    // Handle rotation: if 90 or 270 degrees, swap dimensions
-    final bool swap = rotationDegrees == 90 || rotationDegrees == 270;
-    final double contentWidth = swap ? imageHeight.toDouble() : imageWidth.toDouble();
-    final double contentHeight = swap ? imageWidth.toDouble() : imageHeight.toDouble();
+    // Helper to draw clipped rects (cover crop can push boxes out of view)
+    void drawClippedRect(Rect boxN, Color color, {double strokeWidth = 2.0, String? label}) {
+      final boxPx = m.srcNormToDst(boxN);
+      final clipped = boxPx.intersect(Offset.zero & size);
+      if (clipped.isEmpty || clipped.width < 2 || clipped.height < 2) return;
+      
+      _drawRect(canvas, clipped, color, strokeWidth: strokeWidth, label: label);
+    }
     
-    // Scale factors for coordinate transformation
-    final double scaleX = size.width / contentWidth;
-    final double scaleY = size.height / contentHeight;
-
     // 1. Draw Locked Rim (BLUE, thick)
-    if (state.lockedRim != null) {
-      _drawRect(
-        canvas,
-        _scaleRect(state.lockedRim!, scaleX, scaleY),
-        Colors.blue,
-        strokeWidth: 4.0,
-        label: "🔒 RIM LOCKED",
-      );
+    if (state.lockedRimN != null) {
+      drawClippedRect(state.lockedRimN!, Colors.blue, strokeWidth: 4.0, label: "🔒 RIM");
     }
 
-    // 2. Draw Raw YOLO Ball (RED, thin)
-    if (state.lastBallRect != null) {
-      _drawRect(
-        canvas,
-        _scaleRect(state.lastBallRect!, scaleX, scaleY),
-        Colors.red,
-        strokeWidth: 2.0,
-        label: "YOLO",
-      );
+    // 2. Draw Raw YOLO Ball (RED, thin) - ONLY IN DEBUG
+    if (showDebug && state.lastBallRectN != null) {
+      drawClippedRect(state.lastBallRectN!, Colors.red, strokeWidth: 2.0, label: "YOLO");
     }
 
     // 3. Draw Kalman Smoothed Ball (GREEN, filled circle)
-    if (state.smoothedBallCenter != null) {
-      final center = Offset(
-        state.smoothedBallCenter!.dx * scaleX,
-        state.smoothedBallCenter!.dy * scaleY,
-      );
-      final paint = Paint()
-        ..color = Colors.green
-        ..style = PaintingStyle.fill;
-      canvas.drawCircle(center, 15.0, paint);
+    if (state.smoothedBallCenterN != null) {
+      final center = m.srcNormPointToDst(state.smoothedBallCenterN!);
+      
+      // Only draw if visible
+      if (center.dx >= 0 && center.dx <= size.width &&
+          center.dy >= 0 && center.dy <= size.height) {
+        final paint = Paint()
+          ..color = Colors.green
+          ..style = PaintingStyle.fill;
+        canvas.drawCircle(center, 15.0, paint);
 
-      // Draw crosshair
-      final crossPaint = Paint()
-        ..color = Colors.white
-        ..strokeWidth = 2.0;
-      canvas.drawLine(
-        Offset(center.dx - 20, center.dy),
-        Offset(center.dx + 20, center.dy),
-        crossPaint,
-      );
-      canvas.drawLine(
-        Offset(center.dx, center.dy - 20),
-        Offset(center.dx, center.dy + 20),
-        crossPaint,
-      );
+        // Draw crosshair
+        final crossPaint = Paint()
+          ..color = Colors.white
+          ..strokeWidth = 2.0;
+        canvas.drawLine(
+          Offset(center.dx - 20, center.dy),
+          Offset(center.dx + 20, center.dy),
+          crossPaint,
+        );
+        canvas.drawLine(
+          Offset(center.dx, center.dy - 20),
+          Offset(center.dx, center.dy + 20),
+          crossPaint,
+        );
+      }
     }
 
     // 4. Draw ROI Window (YELLOW, dashed)
-    if (state.roiWindow != null && state.isRoiMode) {
-      _drawDashedRect(
-        canvas,
-        _scaleRect(state.roiWindow!, scaleX, scaleY),
-        Colors.yellow,
-        strokeWidth: 2.0,
-      );
+    if (state.roiWindowN != null && state.isRoiMode) {
+      final roiPx = m.srcNormToDst(state.roiWindowN!);
+      final clipped = roiPx.intersect(Offset.zero & size);
+      if (!clipped.isEmpty && clipped.width > 2 && clipped.height > 2) {
+        _drawDashedRect(canvas, clipped, Colors.yellow, strokeWidth: 2.0);
+        
+        final textStyle = TextStyle(
+          color: Colors.yellow,
+          fontSize: 12,
+          fontWeight: FontWeight.bold,
+          shadows: [Shadow(color: Colors.black, blurRadius: 2)],
+        );
+        final textSpan = TextSpan(text: "ROI", style: textStyle);
+        final textPainter = TextPainter(
+          text: textSpan,
+          textDirection: TextDirection.ltr,
+        );
+        textPainter.layout();
+        textPainter.paint(canvas, Offset(clipped.left, math.max(clipped.top - 16, 0)));
+      }
     }
-  }
 
-  Rect _scaleRect(Rect rect, double scaleX, double scaleY) {
-    return Rect.fromLTRB(
-      rect.left * scaleX,
-      rect.top * scaleY,
-      rect.right * scaleX,
-      rect.bottom * scaleY,
-    );
+    // 5. Draw raw detections (for debugging) - ONLY IN DEBUG
+    if (showDebug && rawDetectionsN != null) {
+      for (final d in rawDetectionsN!) {
+        final boxN = d['boxN'] as Rect?;
+        final conf = d['conf'] as double? ?? 0.0;
+        final tag = d['tag'] as String? ?? '';
+        
+        // Filter noise for cleaner visualization
+        if (boxN != null && conf > 0.35) {
+          drawClippedRect(
+            boxN, 
+            Colors.cyan.withOpacity(0.7), 
+            strokeWidth: 1.5,
+            label: "$tag ${(conf * 100).toStringAsFixed(0)}%",
+          );
+        }
+      }
+    }
   }
 
   void _drawRect(
@@ -129,7 +150,7 @@ class TrackerPainter extends CustomPainter {
         textDirection: TextDirection.ltr,
       );
       textPainter.layout();
-      textPainter.paint(canvas, Offset(rect.left, rect.top - 18));
+      textPainter.paint(canvas, Offset(rect.left, math.max(rect.top - 18, 0)));
     }
   }
 
@@ -146,26 +167,10 @@ class TrackerPainter extends CustomPainter {
       ..style = PaintingStyle.stroke
       ..strokeWidth = strokeWidth;
 
-    // Draw each side with dashes
     _drawDashedLine(canvas, rect.topLeft, rect.topRight, paint, dashLength, gapLength);
     _drawDashedLine(canvas, rect.topRight, rect.bottomRight, paint, dashLength, gapLength);
     _drawDashedLine(canvas, rect.bottomRight, rect.bottomLeft, paint, dashLength, gapLength);
     _drawDashedLine(canvas, rect.bottomLeft, rect.topLeft, paint, dashLength, gapLength);
-
-    // Label
-    final textStyle = TextStyle(
-      color: color,
-      fontSize: 12,
-      fontWeight: FontWeight.bold,
-      shadows: [Shadow(color: Colors.black, blurRadius: 2)],
-    );
-    final textSpan = TextSpan(text: "ROI", style: textStyle);
-    final textPainter = TextPainter(
-      text: textSpan,
-      textDirection: TextDirection.ltr,
-    );
-    textPainter.layout();
-    textPainter.paint(canvas, Offset(rect.left + 5, rect.top + 5));
   }
 
   void _drawDashedLine(
@@ -178,38 +183,34 @@ class TrackerPainter extends CustomPainter {
   ) {
     final dx = end.dx - start.dx;
     final dy = end.dy - start.dy;
-    final length = sqrt(dx * dx + dy * dy);
-    final unitX = dx / length;
-    final unitY = dy / length;
+    final length = math.sqrt(dx * dx + dy * dy);
+    if (length == 0) return;
+    
+    final unitDx = dx / length;
+    final unitDy = dy / length;
 
-    double drawn = 0;
+    double currentDist = 0;
     bool drawing = true;
-    while (drawn < length) {
+
+    while (currentDist < length) {
       final segmentLength = drawing ? dashLength : gapLength;
-      final remaining = length - drawn;
-      final actualLength = segmentLength < remaining ? segmentLength : remaining;
+      final segmentEnd = currentDist + segmentLength > length
+          ? length
+          : currentDist + segmentLength;
 
       if (drawing) {
         canvas.drawLine(
-          Offset(start.dx + unitX * drawn, start.dy + unitY * drawn),
-          Offset(start.dx + unitX * (drawn + actualLength), start.dy + unitY * (drawn + actualLength)),
+          Offset(start.dx + currentDist * unitDx, start.dy + currentDist * unitDy),
+          Offset(start.dx + segmentEnd * unitDx, start.dy + segmentEnd * unitDy),
           paint,
         );
       }
-      drawn += actualLength;
+
+      currentDist = segmentEnd;
       drawing = !drawing;
     }
   }
 
   @override
-  bool shouldRepaint(covariant TrackerPainter oldDelegate) {
-    // Only repaint if state or dimensions actually changed
-    return oldDelegate.imageWidth != imageWidth ||
-        oldDelegate.imageHeight != imageHeight ||
-        oldDelegate.state.lockedRim != state.lockedRim ||
-        oldDelegate.state.lastBallRect != state.lastBallRect ||
-        oldDelegate.state.smoothedBallCenter != state.smoothedBallCenter ||
-        oldDelegate.state.roiWindow != state.roiWindow ||
-        oldDelegate.state.isRoiMode != state.isRoiMode;
-  }
+  bool shouldRepaint(covariant TrackerPainter oldDelegate) => true;
 }

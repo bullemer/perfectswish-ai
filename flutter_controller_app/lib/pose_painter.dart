@@ -21,17 +21,44 @@ class PosePainter extends CustomPainter {
     this.jointAngles,
   });
 
-
   /// Transform image coordinates to screen coordinates.
-  /// Uses BoxFit.contain logic to match CameraPreview's letterboxing behavior.
+  /// 
+  /// ML Kit returns landmarks in the original image coordinate space.
+  /// CameraPreview applies rotation to display correctly.
+  /// We must:
+  ///   1. Rotate landmark coords to match preview orientation
+  ///   2. Apply BoxFit.contain scaling with letterbox offsets
+  ///   3. Mirror for front camera if needed
   Offset _transformPoint(double x, double y, Size size) {
-    // Determine effective content dimensions based on rotation
-    // If rotation is 90 or 270, the image dimensions are swapped relative to display
+    // Step 1: ROTATE landmarks to match CameraPreview's rotation
+    // This transforms from image space to display space
+    double rx = x, ry = y;
+    switch (rotationDegrees) {
+      case 90:
+        // Android back camera typically has 90° sensor rotation
+        // Rotate 90° counter-clockwise to match display
+        rx = imageHeight - y;
+        ry = x;
+        break;
+      case 180:
+        rx = imageWidth - x;
+        ry = imageHeight - y;
+        break;
+      case 270:
+        // 270° = 90° clockwise
+        rx = y;
+        ry = imageWidth - x;
+        break;
+      default: // 0
+        break;
+    }
+    
+    // Step 2: Calculate content dimensions AFTER rotation
     final bool swap = rotationDegrees == 90 || rotationDegrees == 270;
     final double contentWidth = swap ? imageHeight.toDouble() : imageWidth.toDouble();
     final double contentHeight = swap ? imageWidth.toDouble() : imageHeight.toDouble();
     
-    // Calculate aspect ratios for BoxFit.contain
+    // Step 3: BoxFit.contain scaling (matches CameraPreview letterboxing)
     final double contentAspect = contentWidth / contentHeight;
     final double layoutAspect = size.width / size.height;
     
@@ -42,20 +69,17 @@ class PosePainter extends CustomPainter {
     if (layoutAspect > contentAspect) {
       // Layout is wider than content - letterbox on sides
       scale = size.height / contentHeight;
-      double scaledWidth = contentWidth * scale;
-      offsetX = (size.width - scaledWidth) / 2;
+      offsetX = (size.width - contentWidth * scale) / 2;
     } else {
       // Layout is taller than content - letterbox on top/bottom
       scale = size.width / contentWidth;
-      double scaledHeight = contentHeight * scale;
-      offsetY = (size.height - scaledHeight) / 2;
+      offsetY = (size.height - contentHeight * scale) / 2;
     }
     
-    // Scale and offset the coordinates
-    double dx = (x * scale) + offsetX;
-    double dy = (y * scale) + offsetY;
+    double dx = (rx * scale) + offsetX;
+    double dy = (ry * scale) + offsetY;
     
-    // Mirror for front camera
+    // Step 4: Mirror for front camera (CameraPreview mirrors front camera)
     if (isFrontCamera) {
       dx = size.width - dx;
     }
@@ -101,29 +125,30 @@ class PosePainter extends CustomPainter {
     PoseLandmarkType.rightAnkle,
   };
   
+  // Static paint objects to avoid recreating every frame
+  static final Paint _bonePaint = Paint()
+    ..color = Colors.greenAccent
+    ..strokeWidth = 3.0
+    ..style = PaintingStyle.stroke;
+  
+  static final Paint _jointPaint = Paint()
+    ..color = Colors.orange
+    ..style = PaintingStyle.fill;
+  
+  static final Paint _filteredJointPaint = Paint()
+    ..color = Colors.cyan
+    ..style = PaintingStyle.fill;
+  
+  static const TextStyle _textStyle = TextStyle(
+    color: Colors.white,
+    fontSize: 12,
+    fontWeight: FontWeight.bold,
+    shadows: [Shadow(color: Colors.black, blurRadius: 2)],
+  );
+  
   @override
   void paint(Canvas canvas, Size size) {
     if (poses.isEmpty) return;
-    
-    final bonePaint = Paint()
-      ..color = Colors.greenAccent
-      ..strokeWidth = 3.0
-      ..style = PaintingStyle.stroke;
-    
-    final jointPaint = Paint()
-      ..color = Colors.orange
-      ..style = PaintingStyle.fill;
-    
-    final filteredJointPaint = Paint()
-      ..color = Colors.cyan
-      ..style = PaintingStyle.fill;
-    
-    final textStyle = TextStyle(
-      color: Colors.white,
-      fontSize: 12,
-      fontWeight: FontWeight.bold,
-      shadows: [Shadow(color: Colors.black, blurRadius: 2)],
-    );
     
     for (final pose in poses) {
       // Draw bones
@@ -133,7 +158,7 @@ class PosePainter extends CustomPainter {
         if (p1 != null && p2 != null && p1.likelihood > 0.5 && p2.likelihood > 0.5) {
           final start = _transformPoint(p1.x, p1.y, size);
           final end = _transformPoint(p2.x, p2.y, size);
-          canvas.drawLine(start, end, bonePaint);
+          canvas.drawLine(start, end, _bonePaint);
         }
       }
       
@@ -143,7 +168,7 @@ class PosePainter extends CustomPainter {
         if (landmark.likelihood < 0.5) continue;
         
         final isFiltered = _filteredJoints.contains(entry.key);
-        final paint = isFiltered ? filteredJointPaint : jointPaint;
+        final paint = isFiltered ? _filteredJointPaint : _jointPaint;
         final radius = isFiltered ? 8.0 : 5.0;
         
         // Use filtered coordinates if available
@@ -160,10 +185,10 @@ class PosePainter extends CustomPainter {
       
       // Draw joint angles
       if (jointAngles != null) {
-        _drawAngleLabel(canvas, pose, PoseLandmarkType.leftElbow, 'L Elbow', jointAngles!['leftElbow'], size, textStyle);
-        _drawAngleLabel(canvas, pose, PoseLandmarkType.rightElbow, 'R Elbow', jointAngles!['rightElbow'], size, textStyle);
-        _drawAngleLabel(canvas, pose, PoseLandmarkType.leftKnee, 'L Knee', jointAngles!['leftKnee'], size, textStyle);
-        _drawAngleLabel(canvas, pose, PoseLandmarkType.rightKnee, 'R Knee', jointAngles!['rightKnee'], size, textStyle);
+        _drawAngleLabel(canvas, pose, PoseLandmarkType.leftElbow, 'L Elbow', jointAngles!['leftElbow'], size, _textStyle);
+        _drawAngleLabel(canvas, pose, PoseLandmarkType.rightElbow, 'R Elbow', jointAngles!['rightElbow'], size, _textStyle);
+        _drawAngleLabel(canvas, pose, PoseLandmarkType.leftKnee, 'L Knee', jointAngles!['leftKnee'], size, _textStyle);
+        _drawAngleLabel(canvas, pose, PoseLandmarkType.rightKnee, 'R Knee', jointAngles!['rightKnee'], size, _textStyle);
       }
     }
   }
