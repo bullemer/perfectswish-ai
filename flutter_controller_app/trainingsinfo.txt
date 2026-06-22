@@ -1,0 +1,34 @@
+You are a senior ML engineer shipping an on-device basketball detector in a Flutter app using ultralytics_yolo (TFLite). Current model yolo11n misses the rim frequently (sometimes ball). We want to fine-tune YOLO11s at imgsz=640 for 3 classes: rim, ball, net.
+
+Assume:
+- Dataset is in YOLO format (images/labels, train/val splits) with a data.yaml.
+- Most failures are: small rim at distance, low contrast, motion blur, partial occlusions, gym lighting.
+- Deployment target: Android phones, real-time; export must be TFLite with fixed input size 640.
+
+Task:
+1) Give exact Ultralytics CLI and Python commands to:
+   - download/load yolo11s.pt,
+   - train with imgsz=640,
+   - validate,
+   - export to TFLite (and optionally fp16/int8).
+2) Recommend training settings optimized for small objects:
+   - augmentations (blur/brightness/perspective),
+   - oversampling/weights for rim,
+   - how many epochs, batch size, and early stopping criteria.
+3) Give a short evaluation plan:
+   - which metrics to track (per-class recall for rim),
+   - how to build a “hard cases” validation set from app captures,
+   - how to decide whether yolo11s@640 beats yolo11n@640.
+4) List common pitfalls that would cause rim misses to persist:
+   - incorrect label tightness, tiny boxes,
+   - mismatch between training letterbox and inference,
+   - quantization hurting small-object recall,
+   - resolution/camera pipeline mismatches.
+Be decisive and include defaults that work in practice.
+
+
+Datasets:
+
+https://universe.roboflow.com/test-datset/basketball-bs0zc
+https://universe.roboflow.com/test-datset/basketball-bs0zc
+
